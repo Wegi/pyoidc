@@ -9,14 +9,14 @@ from functools import wraps
 
 import cherrypy
 import yaml
-from cherrypy import wsgiserver
-from cherrypy.wsgiserver.ssl_builtin import BuiltinSSLAdapter
+from cheroot.wsgi import Server as wsgiserver
+from cheroot.wsgi import WSGIPathInfoDispatcher # This shows an error in pycharm due to dynamic imports.
+from cheroot.ssl.builtin import BuiltinSSLAdapter
 from jinja2.environment import Environment
 from jinja2.loaders import FileSystemLoader
 from provider.authn import make_cls_from_name
-from six.moves.urllib import parse as urlparse
+from six.moves.urllib import parse as urlparse  # This shows an error in pycharm due to dynamic imports. Ignore
 
-from oic.oauth2 import rndstr
 from oic.oic.provider import AuthorizationEndpoint
 from oic.oic.provider import EndSessionEndpoint
 from oic.oic.provider import Provider
@@ -39,11 +39,19 @@ from oic.utils.webfinger import OIC_ISSUER
 from oic.utils.webfinger import WebFinger
 
 try:
-    from cherrypy.wsgiserver.wsgiserver3 import WSGIPathInfoDispatcher
+    from oic.oauth2 import rndstr
 except ImportError:
-    from cherrypy.wsgiserver.wsgiserver2 import WSGIPathInfoDispatcher
+    import string
+    import random
 
-
+    def rndstr(size=16):
+        """
+        Returns a string of random ascii characters or digits
+        :param size: The length of the string
+        :return: string
+        """
+        _basech = string.ascii_letters + string.digits
+        return "".join([random.choice(_basech) for _ in range(size)])
 
 
 def VerifierMiddleware(verifier):
@@ -199,7 +207,7 @@ def main():
     userinfo = UserInfo(i)
 
     client_db = {}
-    provider = Provider(issuer, SessionDB(issuer), client_db, authn_broker,
+    provider = Provider(issuer, SessionDB(issuer, {}), client_db, authn_broker,
                         userinfo, AuthzHandling(), verify_client, None)
     provider.baseurl = issuer
     provider.symkey = rndstr(16)
@@ -217,8 +225,7 @@ def main():
     with open(os.path.join(path, name), "w") as f:
         f.write(json.dumps(jwks))
 
-    provider.jwks_uri.append(
-        "{}/static/{}".format(provider.baseurl, name))
+    provider.jwks_uri = "{}/static/{}".format(provider.baseurl, name)
 
     # Mount the WSGI callable object (app) on the root directory
     app_routing = setup_endpoints(provider)
@@ -229,7 +236,7 @@ def main():
     routing = dict(list(auth_routing.items()) + list(app_routing.items()))
     routing["/static"] = make_static_handler(path)
     dispatcher = WSGIPathInfoDispatcher(routing)
-    server = wsgiserver.CherryPyWSGIServer(('0.0.0.0', args.port), dispatcher)
+    server = wsgiserver(('0.0.0.0', args.port), dispatcher)
 
     # Setup SSL
     if provider.baseurl.startswith("https://"):
